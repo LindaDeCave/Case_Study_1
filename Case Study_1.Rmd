@@ -1,0 +1,500 @@
+---
+title: "Case Study 1"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+
+library(ggpubr)
+
+library(gridExtra)
+
+library(corrplot)
+
+library(glmnet) 
+
+library(olsrr)
+```
+
+## (1) The problem
+
+The data includes 14 columns corresponding to:  
+
+•	Country of residence  
+•	Age (when they start trying to become pregnant)  
+•	BMI, i.e. body mass index (for some the BMI is set to 0, these values should be ignored for the purpose of this challenge)   
+•	Used Pill Before (true, false, or NULL if they used it, but not recently)  
+•	NCbefore (i.e. they used Natural Cycles to prevent pregnancies before planning)  
+•	FPlength (FP = follicular phase)  
+•	Weight (See BMI)   
+•	Cycle Variance  
+•	Temperature Logging Frequency (fraction of days they log temperature)  
+•	Sex Logging Frequency  
+•	Days Trying  
+•	Cycles Trying  
+•	Exit Status (either Pregnant, Dropout, or Right, the last one indicating Right censoring, i.e. they are still actively trying)  
+•	AnovCycles (how many cycles were anovulatory, i.e. in which no ovulation has been detected).  
+
+Problem: investigate and report on what factors impact:  
+
+1.	the time it takes to become pregnant  
+2.	fertility in general (if possible)  
+3.	drop-out rates.  
+
+## (2) Exploratory Data Analysis
+
+```{r}
+cycles = read.csv("/Users/linda/Desktop/eBay/anafile.csv") 
+
+# removing duplicate rows
+
+cycles = cycles[!duplicated(cycles),]
+
+# ignoring the rows with BMI=0
+
+cycles = cycles %>% filter(NumBMI!=0)
+
+str(cycles)
+```
+
+### Distribution of Age varaible
+
+```{r}
+length(unique(cycles$Age))
+
+plot1 = cycles %>% ggplot(aes(x = Age)) + geom_histogram(binwidth = 1,fill = "lightblue") + xlab("Age") + geom_vline(aes(xintercept = mean(Age), color="mean")) + geom_vline(aes(xintercept = median(Age), color="median")) + geom_vline(aes(xintercept = quantile(Age, .995), color=".995 percentile")) 
+
+plot2 = cycles %>% ggplot(aes(x = Age)) + geom_density(fill="lightblue") + geom_vline(aes(xintercept = mean(Age), color="mean")) + geom_vline(aes(xintercept = median(Age), color="median")) + geom_vline(aes(xintercept = quantile(Age, .995), color=".995 percentile")) + xlab("Age") 
+
+grid.arrange(plot1, plot2, widths = 100)
+```
+
+### Distribution of BMI variable
+
+```{r}
+length(unique(cycles$NumBMI))
+
+plot1 = cycles %>% ggplot(aes(x = NumBMI)) + geom_histogram(binwidth = 1,fill = "lightblue") + xlab("BMI") + geom_vline(aes(xintercept = mean(NumBMI), color="mean")) + geom_vline(aes(xintercept = median(NumBMI), color="median")) + geom_vline(aes(xintercept = quantile(NumBMI, .995), color=".995 percentile"))
+
+plot2 = cycles %>% ggplot(aes(x = NumBMI)) + geom_density(fill="lightblue") + geom_vline(aes(xintercept = mean(NumBMI), color="mean")) + geom_vline(aes(xintercept = median(NumBMI), color="median")) + geom_vline(aes(xintercept = quantile(NumBMI, .995), color=".995 percentile")) + xlab("BMI") 
+
+grid.arrange(plot1, plot2, widths = 100)
+```
+
+### Distribution of Weight variable
+
+```{r}
+length(unique(cycles$Weight))
+
+plot1 = cycles %>% ggplot(aes(x = Weight)) + geom_histogram(binwidth = 2,fill = "lightblue") + xlab("Weight") + geom_vline(aes(xintercept = mean(Weight), color="mean")) + geom_vline(aes(xintercept = median(Weight), color="median")) + geom_vline(aes(xintercept = quantile(Weight, .995), color=".995 percentile"))
+
+plot2 = cycles %>% ggplot(aes(x = Weight)) + geom_density(fill="lightblue") + geom_vline(aes(xintercept = mean(Weight), color="mean")) + geom_vline(aes(xintercept = median(Weight), color="median")) + geom_vline(aes(xintercept = quantile(Weight, .995), color=".995 percentile")) + xlab("Weight") 
+
+grid.arrange(plot1, plot2, widths = 100)
+```
+
+### Distribution of Temperature Logging Frequency variable
+
+```{r}
+length(unique(cycles$TempLogFreq))
+
+plot1 = cycles %>% ggplot(aes(x = TempLogFreq)) + geom_histogram(binwidth = 0.05,fill = "lightblue") + xlab("Temperature Logging Frequency") + geom_vline(aes(xintercept = mean(TempLogFreq), color="mean")) + geom_vline(aes(xintercept = median(TempLogFreq), color="median")) + geom_vline(aes(xintercept = quantile(TempLogFreq, .995), color=".995 percentile"))
+
+plot2 = cycles %>% ggplot(aes(x = TempLogFreq)) + geom_density(fill="lightblue") + geom_vline(aes(xintercept = mean(TempLogFreq), color="mean")) + geom_vline(aes(xintercept = median(TempLogFreq), color="median")) + geom_vline(aes(xintercept = quantile(TempLogFreq, .995), color=".995 percentile")) + xlab("Temperature Logging Frequency") 
+
+grid.arrange(plot1, plot2, widths = 100)
+```
+
+### Distribution of Sex Logging Frequency variable
+
+```{r}
+length(unique(cycles$SexLogFreq))
+
+plot1 = cycles %>% ggplot(aes(x = SexLogFreq)) + geom_histogram(binwidth = 0.05,fill = "lightblue") + xlab("Sex Logging Frequency") + geom_vline(aes(xintercept = mean(SexLogFreq), color="mean")) + geom_vline(aes(xintercept = median(SexLogFreq), color="median")) + geom_vline(aes(xintercept = quantile(SexLogFreq, .995), color=".995 percentile"))
+
+plot2 = cycles %>% ggplot(aes(x = SexLogFreq)) + geom_density(fill="lightblue") + geom_vline(aes(xintercept = mean(SexLogFreq), color="mean")) + geom_vline(aes(xintercept = median(SexLogFreq), color="median")) + geom_vline(aes(xintercept = quantile(SexLogFreq, .995), color=".995 percentile")) + xlab("Sex Logging Frequency") 
+
+grid.arrange(plot1, plot2, widths = 100)
+```
+
+### Distribution of Days Trying variable
+
+```{r}
+length(unique(cycles$DaysTrying))
+
+plot1 = cycles %>% ggplot(aes(x = DaysTrying)) + geom_histogram(binwidth = 30,fill = "lightblue") + xlab("Days Trying") + geom_vline(aes(xintercept = mean(DaysTrying), color="mean")) + geom_vline(aes(xintercept = median(DaysTrying), color="median")) + geom_vline(aes(xintercept = quantile(DaysTrying, .995), color=".995 percentile"))
+
+plot2 = cycles %>% ggplot(aes(x = DaysTrying)) + geom_density(fill="lightblue") + geom_vline(aes(xintercept = mean(DaysTrying), color="mean")) + geom_vline(aes(xintercept = median(DaysTrying), color="median")) + geom_vline(aes(xintercept = quantile(DaysTrying, .995), color=".995 percentile")) + xlab("Days Trying") 
+
+grid.arrange(plot1, plot2, widths = 100)
+```
+
+### Distribution of Cycles Trying variable
+
+```{r}
+length(unique(cycles$CyclesTrying))
+
+plot1 = cycles %>% ggplot(aes(x = CyclesTrying)) + geom_histogram(binwidth = 1,fill = "lightblue") + xlab("Cycles Trying") + geom_vline(aes(xintercept = mean(CyclesTrying), color="mean")) + geom_vline(aes(xintercept = median(CyclesTrying), color="median")) + geom_vline(aes(xintercept = quantile(CyclesTrying, .995), color=".995 percentile"))
+
+plot2 = cycles %>% ggplot(aes(x = CyclesTrying)) + geom_density(fill="lightblue") + geom_vline(aes(xintercept = mean(CyclesTrying), color="mean")) + geom_vline(aes(xintercept = median(CyclesTrying), color="median")) + geom_vline(aes(xintercept = quantile(CyclesTrying, .995), color=".995 percentile")) + xlab("Cycles Trying") 
+
+grid.arrange(plot1, plot2, widths = 100)
+```
+
+### Distribution of Anovulatory Cycles variable
+
+```{r}
+length(unique(cycles$AnovCycles))
+
+plot1 = cycles %>% ggplot(aes(x = AnovCycles)) + geom_histogram(binwidth = 1,fill = "lightblue") + xlab("Anovulatory Cycles") + geom_vline(aes(xintercept = mean(AnovCycles), color="mean")) + geom_vline(aes(xintercept = median(AnovCycles), color="median")) + geom_vline(aes(xintercept = quantile(AnovCycles, .995), color=".995 percentile"))
+
+plot2 = cycles %>% ggplot(aes(x = AnovCycles)) + geom_density(fill="lightblue") + geom_vline(aes(xintercept = mean(AnovCycles), color="mean")) + geom_vline(aes(xintercept = median(AnovCycles), color="median")) + geom_vline(aes(xintercept = quantile(AnovCycles, .995), color=".995 percentile")) + xlab("Anovulatory Cycles") 
+
+grid.arrange(plot1, plot2, widths = 100)
+```
+
+### Distribution of Cycle Variance variable
+
+```{r}
+length(levels(cycles$CycleVar))
+
+ggplot(cycles, aes(x = CycleVar)) + geom_bar(fill = "lightblue") + theme(axis.text.x = element_text(size  = 10, angle = 90, hjust = 1, vjust = 1)) + xlab("Cycle Variance") 
+```
+
+### Distribution of Pill variable
+
+```{r}
+length(levels(cycles$Pill))
+
+ggplot(cycles, aes(x = Pill)) + geom_bar(fill = "lightblue") + theme(axis.text.x = element_text(size  = 10, angle = 90, hjust = 1, vjust = 1)) + xlab("Used Pill") 
+```
+
+### Distribution of Natural Cycles Before variable
+
+```{r}
+length(levels(cycles$NCbefore))
+
+ggplot(cycles, aes(x = NCbefore)) + geom_bar(fill = "lightblue") + theme(axis.text.x = element_text(size  = 10, angle = 90, hjust = 1, vjust = 1)) + xlab("Natural Cycles Before") 
+```
+
+### Distribution of Follicular Phase Length variable
+
+```{r}
+length(levels(cycles$FPlength))
+
+ggplot(cycles, aes(x = FPlength)) + geom_bar(fill = "lightblue") + theme(axis.text.x = element_text(size  = 10, angle = 90, hjust = 1, vjust = 1)) + xlab("Follicular Phase Length") 
+```
+
+### Distribution of Exit Status variable
+
+```{r}
+length(levels(cycles$ExitStatus))
+
+ggplot(cycles, aes(x = ExitStatus)) + geom_bar(fill = "lightblue") + theme(axis.text.x = element_text(size  = 10, angle = 90, hjust = 1, vjust = 1)) + xlab("Exit Status") 
+```
+
+### Distribution of Country variable
+
+```{r}
+length(levels(cycles$Country))
+
+ggplot(cycles, aes(x = Country)) + geom_bar(fill = "lightblue") + theme(axis.text.x = element_text(size  = 7, angle = 45, hjust = 1, vjust = 1)) + xlab("Country")
+```
+
+### Correlation matrix of the numeric variables of the data set cycles 
+
+```{r}
+num_cycles = cycles[,c("Age","NumBMI","Weight","TempLogFreq","SexLogFreq","DaysTrying","CyclesTrying","AnovCycles")] 
+
+corrplot(cor(num_cycles),method = "circle")
+```
+
+The correlation matrix reveals that:  
+• there exists a strong positive correlation between the variables (Weight,NumBMI) and (DaysTrying,CyclesTrying)  
+• there exist a modest positive correlation between the variables (SexLogFreq,TempLogFreq), (AnovCycles,CyclesTrying) and (AnovCycles,DaysTrying)  
+• there exists a modest negative correlation between the variables (SexLogFreq,DaysTrying), (SexLogFreq,CyclesTrying), (TempLogFreq,DaysTrying) and (TempLogFreq,CyclesTrying)  
+
+### Scatterplot matrix of the numeric variables of cycles 
+
+```{r}
+plot(num_cycles,main="Scatterplot Matrix")
+```
+
+The scatter plot matrix provides:   
+• a graphic confirmation of the strong positive correlation between the variables (Weight,NumBMI)  
+• a visualization of the relationship DaysTrying > CyclesTrying  
+• a visualization of the modest negative correlation between the variables (SexLogFreq,DaysTrying) and (SexLogFreq,CyclesTrying).   
+The other correlations between variables found by the correlation matrix are not evident with the graphical representation given by the scatter plot matrix.  
+
+## (3) What factors impact the time it takes to become pregnant?
+
+### Data set of observations with Exit Status equal to Pregnant
+
+```{r}
+pregnant_cycles = cycles %>% filter(ExitStatus == " Pregnant") 
+
+pregnant_cycles = subset(pregnant_cycles, select = -ExitStatus)
+
+str(pregnant_cycles)
+```
+
+### Graphical representation of the relationship between median(DaysTrying) and the other variables in the data set pregnant_cycles.  
+
+Since the distribution of the variable DaysTrying is highly right-skewed, I use the median as measure of center.  
+
+• Plot of median(DaysTrying) vs Country
+
+```{r}
+pregnant_cycles %>% ggplot(aes(x=Country, y=DaysTrying)) + stat_summary(fun.y="median", geom="bar", fill="lightblue") + theme(axis.text.x = element_text(size  = 7, angle = 45, hjust = 1, vjust = 1)) + ylab("Median(DaysTrying)")
+```
+
+• Plot of median(DaysTrying) vs Pill
+
+```{r}
+pregnant_cycles %>% ggplot(aes(x=Pill, y=DaysTrying)) + stat_summary(fun.y="median", geom="bar", fill="lightblue") + theme(axis.text.x = element_text(size  = 10, angle = 90, hjust = 1, vjust = 1)) + ylab("Median(DaysTrying)")
+```
+
+• Plot of median(DaysTrying) vs NCbefore
+
+```{r}
+pregnant_cycles %>% ggplot(aes(x=NCbefore, y=DaysTrying)) + stat_summary(fun.y="median", geom="bar", fill="lightblue") + theme(axis.text.x = element_text(size  = 10, angle = 90, hjust = 1, vjust = 1)) + ylab("Median(DaysTrying)")
+```
+
+• Plot of median(DaysTrying) vs FPlength
+
+```{r}
+pregnant_cycles %>% ggplot(aes(x=FPlength, y=DaysTrying)) + stat_summary(fun.y="median", geom="bar", fill="lightblue") + theme(axis.text.x = element_text(size  = 10, angle = 90, hjust = 1, vjust = 1)) + ylab("Median(DaysTrying)")
+```
+
+• Plot of median(DaysTrying) vs CycleVar
+
+```{r}
+pregnant_cycles %>% ggplot(aes(x=CycleVar, y=DaysTrying)) + stat_summary(fun.y="median", geom="bar", fill="lightblue") + theme(axis.text.x = element_text(size  = 10, angle = 90, hjust = 1, vjust = 1)) + ylab("Median(DaysTrying)")
+```
+
+• Plot of median(DaysTrying) vs CyclesTrying
+
+```{r}
+pregnant_cycles %>% ggplot(aes(x=CyclesTrying, y=DaysTrying)) + stat_summary(fun.y="median", geom="point", colour ="lightblue") + ylab("Median(DaysTrying)")
+```
+
+• Plot of median(DaysTrying) vs SexLogFreq
+
+```{r}
+pregnant_cycles %>% ggplot(aes(x=SexLogFreq, y=DaysTrying)) + stat_summary(fun.y="median", geom="point", colour ="lightblue") + ylab("Median(DaysTrying)")
+```
+
+• Plot of median(DaysTrying) vs AnovCycles
+
+```{r}
+pregnant_cycles %>% ggplot(aes(x=AnovCycles, y=DaysTrying)) + stat_summary(fun.y="median", geom="point", colour ="lightblue") + ylab("Median(DaysTrying)")
+```
+
+• Plot of median(DaysTrying) vs TempLogFreq
+
+```{r}
+pregnant_cycles %>% ggplot(aes(x=TempLogFreq, y=DaysTrying)) + stat_summary(fun.y="median", geom="point", colour ="lightblue") + ylab("Median(DaysTrying)")
+```
+
+• Plot of median(DaysTrying) vs Weight
+
+```{r}
+pregnant_cycles %>% ggplot(aes(x=Weight, y=DaysTrying)) + stat_summary(fun.y="median", geom="point", colour ="lightblue") + ylab("Median(DaysTrying)")
+```
+
+• Plot of median(DaysTrying) vs NumBMI
+
+```{r}
+pregnant_cycles %>% ggplot(aes(x=NumBMI, y=DaysTrying)) + stat_summary(fun.y="median", geom="point", colour ="lightblue") + ylab("Median(DaysTrying)")
+```
+
+• Plot of median(DaysTrying) vs Age
+
+```{r}
+pregnant_cycles %>% ggplot(aes(x=Age, y=DaysTrying)) + stat_summary(fun.y="median", geom="point", colour ="lightblue") + ylab("Median(DaysTrying)")
+```
+
+Some of these plots reveal interesting relationships between median(DaysTrying) and some other variables. In order to be more precise, I use a regression approach to reveal statistically significant relationships between the variable DaysTrying and the other ones of the pregnant_cycles data set.   
+
+### Regression of Days Trying vs the other variables using ols_step_both_p.  
+
+The function ols_step_both_p (olsrr package) builds a regression model from a set of candidate predictor variables by entering and removing predictors based on p-values, in a step wise manner until there is no variable left to enter or remove anymore.  
+To be more precise, variables with t-values less than 1 in absolute value are discarded (if the absolute value of the t-value of a variable is less than 1, the estimate of the coefficient associated to that variable in the linear model is different from zero by chance) and the kept variables are the ones that led to an increase of the R^2 coefficient (the R^2 coefficient of a model measures the percentage of variation in the dependent variable that is explained by the independent variables used in the model).  
+
+I will apply the function ols_step_both_p to the linear regression model (computed using the function lm) to understand what factors impact the time it takes to become pregnant.  
+
+```{r}
+model = lm(DaysTrying ~ ., data = pregnant_cycles)
+
+stepwise = ols_step_both_p(model,details=TRUE)
+
+stepwise
+```
+
+Graphical representation of the increase of R^2 coefficient as the number of variables added to the (linear) model increase. 
+
+```{r}
+R_square = stepwise$rsquare
+
+plot(R_square)
+```
+
+From the output of the step wise regression it results that, by keeping the variables CyclesTrying, FPlength, TempLogFreq, AnovCycles, NCbefore, CycleVar, SexLogFreq, Age and Weight, it is possible to explain the ~88% of variation in the dependent variable DaysTrying (R^2 ~ 0.88).  
+
+It is possible to order by importance the nine predictors through the absolute value of the estimate of the associated coefficient (the estimate of the coefficient of an independent variable $X_i$ in the model is interpreted as the difference in the dependent variable for each one-unit difference in $X_i$). The increasing order of importance (less important first) of the variables is thus the following:  
+- Weight  
+- Age  
+- AnovCycles  
+- CycleVar regular  
+- NCbefore TRUE
+- SexLogFreq    
+- FPlength normal  
+- TempLogFreq   
+- CyclesTrying   
+- FPlength short.    
+
+Note that, since the absolute value of the t-value of the variable Weight is close to 1, we have only a little statistical evidence of the fact that the coefficient of Weight is different from zero not by chance.  
+
+Among the previous nine variables, the only ones that have a positive estimate of the coefficient, and so that lead to an increase in the time necessary to become pregnant, are AnovCycles and CyclesTrying. Note that, besides the strong positive correlation between the variable CyclesTrying and DaysTrying, we have also a strong and statistically significant linear dependence between these two variables (see also the plot of median(DaysTrying) vs CyclesTrying).  
+
+It is possible to conclude with a couple of observations. On one hand the regression approach confirms the relationships that were evident also from the correlation matrix and the graphical representation of the nine statistically significant variables. On the other, the regression approach discovers statistically significant variables in order to explain the time it takes to become pregnant, and their specific impact on this time, whose interaction with this time was not so evident from the correlation matrix or from the graphical representation.
+
+## (4) What factors impact the Fertility in general?
+
+### Adding a binary column Fertility to the cycles data set.  
+
+The entry in Fertility will be 1 if FPlength is normal or short and if AnovCycles is 0, otherwise it will be 0. This is the raw method I will use to detect fertility.
+
+```{r}
+cycles$Fertility = rep(0, nrow(cycles))
+
+cycles$Fertility[cycles$FPlength==" normal"&cycles$AnovCycles==0]=1
+
+cycles$Fertility[cycles$FPlength==" short"&cycles$AnovCycles==0]=1
+
+cycles$Fertility = as.factor(cycles$Fertility)
+
+ggplot(cycles, aes(x = Fertility)) + geom_bar(fill = "lightblue") + theme(axis.text.x = element_text(size  = 10, hjust = 1, vjust = 1)) + xlab("Fertility") + rremove("ylab")
+```
+
+### Now I will apply a Lasso regularization using the function cv.glmnet (glmnet package).  
+
+The function cv.glmnet will automatically performs a grid search to find the optimal value of the parameter lambda of the Lasso.  
+The Lasso regression can be used as a way to select variables in order to predict a certain output, and works by adding a penalty term to the negative log likelihood function (that is the the function to minimize in the classical logistic regression). This penalty term is given by a certain coefficient $\lambda$ multiplied by the sum of the absolute values of the regression coefficients. The parameter $\lambda$ is selected in such a way that the resulting model minimizes the out of sample error. The effect of the penalty term is to set the coefficients that contribute the most to the error to zero.  
+
+I use this approach in order to discover what other variables, besides FPlength and AnovCycles are statistically significant in order to detect Fertility.
+
+```{r}
+x = model.matrix(Fertility~.,cycles)
+
+y= cycles$Fertility
+
+cv.out = cv.glmnet(x,y,alpha=1,family="binomial",type.measure ="mse")
+
+#best value of lambda
+
+lambda_1se = cv.out$lambda.1se
+
+coef(cv.out, s=lambda_1se)
+```
+
+Using the previous approach it results that the only statistically significant variables in order to detect fertility are the ones already used by the "raw detection".  
+
+Let's consider a new data set fertility_cycles obtained by removing the columns FPlength and AnovCycles, already used to detect fertility, from the original cycles data set, and then run once again the lasso to select the variables.
+
+```{r}
+fertility_cycles = subset(cycles, select = -c(FPlength, AnovCycles))
+
+x = model.matrix(Fertility~.,fertility_cycles)
+
+y= fertility_cycles$Fertility
+
+cv.out = cv.glmnet(x,y,alpha=1,family="binomial",type.measure ="mse")
+
+lambda_1se = cv.out$lambda.1se
+
+coef(cv.out, s=lambda_1se)
+```
+
+The Lasso applied on the new data set discovered other significant variables in order to detect fertility, the non-zero ones of the previous output.  
+
+### Logistic regression  
+
+To better understand the "importance" of the non-zero variables discovered by the Lasso, I run a logistic regression model to detect fertility using only the non-zero variables of the output of The Lasso.
+
+```{r}
+fertility_logit = glm(Fertility ~ ExitStatus + CyclesTrying + DaysTrying + SexLogFreq + TempLogFreq + CycleVar + Weight + NCbefore + Pill + Age + Country,family=binomial,data=fertility_cycles)
+
+summary(fertility_logit)
+```
+
+From the previous output, it is possible to deduce that the most statistically significant variables in order to detect fertility, i.e. the ones with p-value less than 0.05 (the p-value is the probability of getting the listed estimate assuming the predictor has no effect: the smaller the p-value, the more significant the estimate is likely to be) are DaysTrying, CyclesTrying, TempLogFreq, CycleVar regular, NCbefore TRUE, Weight, Pill NULL, Pill TRUE, ExitStatus Pregnant, ExitStatus Right and Age.  
+As in the case of the first question, it is possible to order by importance these predictors through the absolute value of the estimate of the associated coefficient. Note that, among the previous variables, the the only ones that have a positive impact on Fertility (estimate of the coefficient with positive sign) are CyclesTrying, CycleVar regular, SexLogFreq, Pill NULL, Pill TRUE and Age. Moreover CycleVar regular is the one with the largest positive impact on Fertility.  
+
+## (5) What factors impact the Drop-Out rates?
+
+### Adding a binary column Dropout to the cycles data set.  
+
+The entry in Dropout will be 1 if ExitStatus is Dropout, 0 if ExitStatus is Pregnant or Right. This is the raw method I will use to detect dropout occurrences.
+
+```{r}
+cycles$Dropout = rep(0, nrow(cycles))
+
+cycles$Dropout[cycles$ExitStatus==" Dropout"]=1
+
+cycles$Dropout = as.factor(cycles$Dropout)
+
+ggplot(cycles, aes(x = Dropout)) + geom_bar(fill = "lightblue") + theme(axis.text.x = element_text(size  = 10, hjust = 1, vjust = 1)) + xlab("Dropout") + rremove("ylab")
+```
+
+### As before I will apply a Lasso regularization using glmnet and the function cv.glmnet.  
+
+I use this approach in order to discover what other variables, besides ExitStatus, are statistically significant in order to detect a Dropout. 
+
+```{r}
+x = model.matrix(Dropout~.,cycles)
+
+y= cycles$Dropout
+
+cv.out = cv.glmnet(x,y,alpha=1,family="binomial",type.measure ="mse")
+
+#best value of lambda
+
+lambda_1se = cv.out$lambda.1se
+
+coef(cv.out, s=lambda_1se)
+```
+
+Once again using the previous approach it results that the only statistically significant variables in order to detect a dropout are the one already used by the "raw detection".  
+
+Let's consider a new data set dropout_cycles obtained by removing the column ExitStatus, already used to detect Dropout, from the original cycles data set, and then run once again the Lasso to select the variables.
+
+```{r}
+dropout_cycles = subset(cycles, select = -c(ExitStatus))
+
+x = model.matrix(Dropout~.,dropout_cycles)
+
+y= dropout_cycles$Dropout
+
+cv.out = cv.glmnet(x,y,alpha=1,family="binomial",type.measure ="mse")
+
+lambda_1se = cv.out$lambda.1se
+
+coef(cv.out, s=lambda_1se)
+```
+
+As in the case of the "Fertility" study, the Lasso applied on the new data set discovered other significant variables in order to detect a "Dropout", the non-zero ones of the previous output.  
+
+### Logistic regression  
+
+To better understand the "importance" of the non-zero variables discovered by the Lasso, I run a logistic regression model to detect a Dropout using only the non-zero variables of the output of The Lasso.
+
+```{r}
+dropout_logit = glm(Dropout ~ Fertility + CyclesTrying + DaysTrying + SexLogFreq + TempLogFreq + CycleVar + FPlength + NCbefore + Pill + Age + Country + NumBMI,family=binomial,data=dropout_cycles)
+
+summary(dropout_logit)
+```
+
+From the previous output, it is possible to deduce that the most statistically significant variables in order to detect dropout, i.e. the ones with p-value less than 0.05, are Pill TRUE, Pill NULL, TempLogFreq, SexLogFreq, CycleVar regular, NumBMI and NCbefore TRUE.
+Once again, it is possible to order by importance these predictors through the absolute value of the estimate of the associated coefficient. Note that, among the previous variables, the the only one that has a positive impact on Dropout (even if the numerical value of the estimated coefficient is really small) is NumBMI. Moreover the two variables that have the largest negative impact on Dropout are TempLogFreq and SexLogFreq. This means that, if the SexLogFreq and/or the TempLogFreq increase while the other variables are left invaried, we will less likely have a Dropout.
